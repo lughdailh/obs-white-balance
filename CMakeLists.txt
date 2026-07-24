@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(obs-white-balance VERSION 0.1.0 LANGUAGES C CXX OBJCXX)
+project(obs-white-balance VERSION 0.1.1 LANGUAGES C CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(OBS_APP "/Applications/OBS.app" CACHE PATH "Path to OBS.app")
@@ -34,6 +34,23 @@ if(BUILD_TESTING)
                  src/calibration-math.cpp)
   target_include_directories(calibration-math-tests PRIVATE src)
   add_test(NAME calibration-math-tests COMMAND calibration-math-tests)
+
+  add_executable(plugin-smoke tests/plugin-smoke.mm)
+  target_include_directories(plugin-smoke SYSTEM PRIVATE
+                             "${OBS_SOURCE_DIR}/libobs")
+  target_compile_options(plugin-smoke PRIVATE -fobjc-arc)
+  target_link_libraries(plugin-smoke PRIVATE
+                        "${OBS_APP}/Contents/Frameworks/libobs.framework/libobs"
+                        "${APPKIT}")
+  set_target_properties(plugin-smoke PROPERTIES
+                        BUILD_RPATH "${OBS_APP}/Contents/Frameworks")
+  add_dependencies(plugin-smoke obs-white-balance)
+  add_test(
+    NAME plugin-smoke
+    COMMAND plugin-smoke
+            "${OBS_APP}/Contents/Frameworks/libobs-opengl.dylib"
+            "$<TARGET_FILE:obs-white-balance>"
+            "${CMAKE_CURRENT_SOURCE_DIR}/data")
 endif()
 
 set(BUNDLE "${CMAKE_BINARY_DIR}/obs-white-balance.plugin")

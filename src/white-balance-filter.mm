@@ -39,6 +39,9 @@ void alert(NSString *message) {
 }
 
 white_balance::Snapshot snapshot(Filter *filter) {
+  if (!filter)
+    throw std::runtime_error("The White Balance filter is unavailable.");
+
   obs_source_t *parent = nullptr;
   {
     std::lock_guard<std::mutex> lock(filter->mutex);
@@ -89,6 +92,11 @@ white_balance::Snapshot snapshot(Filter *filter) {
 
 bool calibrate(obs_properties_t *, obs_property_t *, void *data) {
   auto *filter = static_cast<Filter *>(data);
+  if (!filter) {
+    alert(@"The White Balance filter could not be created.");
+    return false;
+  }
+
   try {
     auto shot = snapshot(filter);
     obs_data_t *settings = obs_source_get_settings(filter->source);
@@ -118,6 +126,9 @@ bool calibrate(obs_properties_t *, obs_property_t *, void *data) {
 const char *name(void *) { return obs_module_text("WhiteBalanceFilter"); }
 void update(void *data, obs_data_t *settings) {
   auto *f = static_cast<Filter *>(data);
+  if (!f || !settings)
+    return;
+
   f->red = obs_data_get_double(settings, RED);
   f->green = obs_data_get_double(settings, GREEN);
   f->blue = obs_data_get_double(settings, BLUE);
@@ -135,6 +146,12 @@ void *create(obs_data_t *settings, obs_source_t *source) {
   auto *f = new Filter;
   f->source = source;
   char *path = obs_module_file("white-balance.effect");
+  if (!path) {
+    blog(LOG_ERROR, "[White Balance] Could not find white-balance.effect");
+    delete f;
+    return nullptr;
+  }
+
   char *errors = nullptr;
   obs_enter_graphics();
   f->effect = gs_effect_create_from_file(path, &errors);
@@ -150,11 +167,23 @@ void *create(obs_data_t *settings, obs_source_t *source) {
   f->redParam = gs_effect_get_param_by_name(f->effect, RED);
   f->greenParam = gs_effect_get_param_by_name(f->effect, GREEN);
   f->blueParam = gs_effect_get_param_by_name(f->effect, BLUE);
+  if (!f->redParam || !f->greenParam || !f->blueParam) {
+    blog(LOG_ERROR, "[White Balance] Shader parameters are missing");
+    obs_enter_graphics();
+    gs_effect_destroy(f->effect);
+    obs_leave_graphics();
+    delete f;
+    return nullptr;
+  }
+
   update(f, settings);
   return f;
 }
 void destroy(void *data) {
   auto *f = static_cast<Filter *>(data);
+  if (!f)
+    return;
+
   {
     std::lock_guard<std::mutex> lock(f->mutex);
     if (f->parent)
@@ -167,6 +196,10 @@ void destroy(void *data) {
 }
 void render(void *data, gs_effect_t *) {
   auto *f = static_cast<Filter *>(data);
+  if (!f || !f->effect) {
+    return;
+  }
+
   if (!obs_source_process_filter_begin(f->source, GS_RGBA,
                                        OBS_ALLOW_DIRECT_RENDERING))
     return;
@@ -177,11 +210,22 @@ void render(void *data, gs_effect_t *) {
 }
 void added(void *data, obs_source_t *source) {
   auto *f = static_cast<Filter *>(data);
+  if (!f || !source) {
+    blog(LOG_ERROR,
+         "[White Balance] Ignoring filter_add for an unavailable filter");
+    return;
+  }
+
   std::lock_guard<std::mutex> lock(f->mutex);
+  if (f->parent)
+    obs_source_release(f->parent);
   f->parent = obs_source_get_ref(source);
 }
 void removed(void *data, obs_source_t *) {
   auto *f = static_cast<Filter *>(data);
+  if (!f)
+    return;
+
   std::lock_guard<std::mutex> lock(f->mutex);
   if (f->parent) {
     obs_source_release(f->parent);
