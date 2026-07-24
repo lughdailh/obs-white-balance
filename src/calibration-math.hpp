@@ -15,6 +15,7 @@ struct Calibration {
   bool tooDark;
   bool nearClipping;
 };
+Calibration calibrateRgb(Rgb sample);
 Calibration calibrateBgraRegion(const std::uint8_t *pixels, std::size_t width,
                                 std::size_t height, std::size_t stride,
                                 double normalizedX, double normalizedY,

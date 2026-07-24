@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(obs-white-balance VERSION 0.1.1 LANGUAGES C CXX OBJCXX)
+project(obs-white-balance VERSION 0.1.2 LANGUAGES C CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(OBS_APP "/Applications/OBS.app" CACHE PATH "Path to OBS.app")
@@ -15,7 +15,7 @@ if(NOT EXISTS "${OBS_APP}/Contents/Frameworks/libobs.framework/libobs")
 endif()
 
 add_library(obs-white-balance MODULE src/calibration-math.cpp
-            src/calibration-view.mm src/white-balance-filter.mm)
+            src/white-balance-filter.mm)
 target_include_directories(obs-white-balance PRIVATE src)
 target_include_directories(obs-white-balance SYSTEM PRIVATE
                            "${OBS_SOURCE_DIR}/libobs")

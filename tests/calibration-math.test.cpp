@@ -6,6 +6,13 @@
 
 static bool near(double a, double b) { return std::abs(a - b) < 0.01; }
 int main() {
+  auto direct =
+      white_balance::calibrateRgb({100.0 / 255.0, 150.0 / 255.0, 200.0 / 255.0});
+  assert(direct.gains.red > direct.gains.green);
+  assert(direct.gains.green > direct.gains.blue);
+  assert(near(direct.sample.red * direct.gains.red,
+              direct.sample.blue * direct.gains.blue));
+
   std::vector<std::uint8_t> neutral(4 * 4 * 4);
   for (std::size_t i = 0; i < neutral.size(); i += 4) {
     neutral[i] = neutral[i + 1] = neutral[i + 2] = 128;

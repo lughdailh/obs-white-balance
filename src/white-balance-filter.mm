@@ -1,9 +1,6 @@
 #import <AppKit/AppKit.h>
 #include <obs-module.h>
-#include <media-io/video-scaler.h>
-#include "calibration-view.hpp"
-#include <mutex>
-#include <stdexcept>
+#include "calibration-math.hpp"
 #include <string>
 
 OBS_DECLARE_MODULE()
@@ -17,18 +14,15 @@ constexpr const char *RED = "red_gain";
 constexpr const char *GREEN = "green_gain";
 constexpr const char *BLUE = "blue_gain";
 constexpr const char *STRENGTH = "strength";
-constexpr const char *RADIUS = "sample_radius";
 constexpr const char *SUMMARY = "calibration_summary";
 
 struct Filter {
   obs_source_t *source = nullptr;
-  obs_source_t *parent = nullptr;
   gs_effect_t *effect = nullptr;
   gs_eparam_t *redParam = nullptr;
   gs_eparam_t *greenParam = nullptr;
   gs_eparam_t *blueParam = nullptr;
   float red = 1, green = 1, blue = 1, strength = 1;
-  std::mutex mutex;
 };
 
 void alert(NSString *message) {
@@ -38,58 +32,6 @@ void alert(NSString *message) {
   [box runModal];
 }
 
-white_balance::Snapshot snapshot(Filter *filter) {
-  if (!filter)
-    throw std::runtime_error("The White Balance filter is unavailable.");
-
-  obs_source_t *parent = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(filter->mutex);
-    if (filter->parent)
-      parent = obs_source_get_ref(filter->parent);
-  }
-  if (!parent)
-    throw std::runtime_error("The filter is not attached to a video source.");
-  obs_source_frame *frame = obs_source_get_frame(parent);
-  if (!frame) {
-    obs_source_release(parent);
-    throw std::runtime_error(
-        "No camera frame is available. Version 0.1 supports asynchronous "
-        "video sources such as Video Capture Device.");
-  }
-
-  white_balance::Snapshot shot;
-  shot.width = frame->width;
-  shot.height = frame->height;
-  shot.stride = frame->width * 4;
-  shot.bgra.resize(shot.stride * shot.height);
-  video_scale_info src{};
-  src.format = frame->format;
-  src.width = frame->width;
-  src.height = frame->height;
-  src.range = frame->full_range ? VIDEO_RANGE_FULL : VIDEO_RANGE_PARTIAL;
-  src.colorspace = frame->height >= 720 ? VIDEO_CS_709 : VIDEO_CS_601;
-  video_scale_info dst{VIDEO_FORMAT_BGRA, frame->width, frame->height,
-                       VIDEO_RANGE_FULL, src.colorspace};
-  video_scaler_t *scaler = nullptr;
-  bool ok = false;
-  if (video_scaler_create(&scaler, &dst, &src, VIDEO_SCALE_BILINEAR) ==
-      VIDEO_SCALER_SUCCESS) {
-    uint8_t *output[MAX_AV_PLANES]{shot.bgra.data()};
-    uint32_t lines[MAX_AV_PLANES]{static_cast<uint32_t>(shot.stride)};
-    const uint8_t *input[MAX_AV_PLANES]{};
-    for (std::size_t i = 0; i < MAX_AV_PLANES; ++i)
-      input[i] = frame->data[i];
-    ok = video_scaler_scale(scaler, output, lines, input, frame->linesize);
-  }
-  video_scaler_destroy(scaler);
-  obs_source_release_frame(parent, frame);
-  obs_source_release(parent);
-  if (!ok)
-    throw std::runtime_error("OBS could not convert the current camera frame.");
-  return shot;
-}
-
 bool calibrate(obs_properties_t *, obs_property_t *, void *data) {
   auto *filter = static_cast<Filter *>(data);
   if (!filter) {
@@ -97,30 +39,42 @@ bool calibrate(obs_properties_t *, obs_property_t *, void *data) {
     return false;
   }
 
-  try {
-    auto shot = snapshot(filter);
-    obs_data_t *settings = obs_source_get_settings(filter->source);
-    auto result = white_balance::showCalibrationDialog(
-        shot, static_cast<std::size_t>(obs_data_get_int(settings, RADIUS)));
-    if (result) {
-      obs_data_set_double(settings, RED, result->gains.red);
-      obs_data_set_double(settings, GREEN, result->gains.green);
-      obs_data_set_double(settings, BLUE, result->gains.blue);
-      auto summary = white_balance::formatCalibration(*result);
+  obs_source_t *source = obs_source_get_ref(filter->source);
+  const bool wasEnabled = obs_source_enabled(source);
+  obs_source_set_enabled(source, false);
+  NSColorSampler *sampler = [[NSColorSampler alloc] init];
+  [sampler showSamplerWithSelectionHandler:^(NSColor *selectedColor) {
+    (void)sampler;
+    obs_source_set_enabled(source, wasEnabled);
+    if (selectedColor) {
+      NSColor *srgb =
+          [selectedColor colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+      CGFloat red = 0;
+      CGFloat green = 0;
+      CGFloat blue = 0;
+      CGFloat alpha = 0;
+      [srgb getRed:&red green:&green blue:&blue alpha:&alpha];
+      const auto result = white_balance::calibrateRgb(
+          {static_cast<double>(red), static_cast<double>(green),
+           static_cast<double>(blue)});
+      obs_data_t *settings = obs_source_get_settings(source);
+      obs_data_set_double(settings, RED, result.gains.red);
+      obs_data_set_double(settings, GREEN, result.gains.green);
+      obs_data_set_double(settings, BLUE, result.gains.blue);
+      auto summary = white_balance::formatCalibration(result);
       obs_data_set_string(settings, SUMMARY, summary.c_str());
-      obs_source_update(filter->source, settings);
-      if (result->tooDark)
+      obs_source_update(source, settings);
+      obs_data_release(settings);
+      if (result.tooDark)
         alert(@"Calibration applied, but the sample is dark. Use a better-lit "
               "neutral card for more reliable results.");
-      else if (result->nearClipping)
+      else if (result.nearClipping)
         alert(@"Calibration applied, but the sample is nearly clipped. Reduce "
               "exposure and recalibrate.");
     }
-    obs_data_release(settings);
-  } catch (const std::exception &error) {
-    alert([NSString stringWithUTF8String:error.what()]);
-  }
-  return true;
+    obs_source_release(source);
+  }];
+  return false;
 }
 
 const char *name(void *) { return obs_module_text("WhiteBalanceFilter"); }
@@ -139,7 +93,6 @@ void defaults(obs_data_t *s) {
   obs_data_set_default_double(s, GREEN, 1);
   obs_data_set_default_double(s, BLUE, 1);
   obs_data_set_default_double(s, STRENGTH, 100);
-  obs_data_set_default_int(s, RADIUS, 12);
   obs_data_set_default_string(s, SUMMARY, "Not calibrated");
 }
 void *create(obs_data_t *settings, obs_source_t *source) {
@@ -184,21 +137,16 @@ void destroy(void *data) {
   if (!f)
     return;
 
-  {
-    std::lock_guard<std::mutex> lock(f->mutex);
-    if (f->parent)
-      obs_source_release(f->parent);
-  }
   obs_enter_graphics();
   gs_effect_destroy(f->effect);
   obs_leave_graphics();
   delete f;
 }
+
 void render(void *data, gs_effect_t *) {
   auto *f = static_cast<Filter *>(data);
-  if (!f || !f->effect) {
+  if (!f || !f->effect)
     return;
-  }
 
   if (!obs_source_process_filter_begin(f->source, GS_RGBA,
                                        OBS_ALLOW_DIRECT_RENDERING))
@@ -208,36 +156,10 @@ void render(void *data, gs_effect_t *) {
   gs_effect_set_float(f->blueParam, 1 + (f->blue - 1) * f->strength);
   obs_source_process_filter_end(f->source, f->effect, 0, 0);
 }
-void added(void *data, obs_source_t *source) {
-  auto *f = static_cast<Filter *>(data);
-  if (!f || !source) {
-    blog(LOG_ERROR,
-         "[White Balance] Ignoring filter_add for an unavailable filter");
-    return;
-  }
-
-  std::lock_guard<std::mutex> lock(f->mutex);
-  if (f->parent)
-    obs_source_release(f->parent);
-  f->parent = obs_source_get_ref(source);
-}
-void removed(void *data, obs_source_t *) {
-  auto *f = static_cast<Filter *>(data);
-  if (!f)
-    return;
-
-  std::lock_guard<std::mutex> lock(f->mutex);
-  if (f->parent) {
-    obs_source_release(f->parent);
-    f->parent = nullptr;
-  }
-}
 obs_properties_t *properties(void *data) {
   auto *p = obs_properties_create();
   obs_properties_add_button2(p, "calibrate", obs_module_text("CaptureReference"),
                              calibrate, data);
-  obs_properties_add_int_slider(p, RADIUS, obs_module_text("SampleRadius"), 2,
-                                100, 1);
   obs_properties_add_float_slider(p, STRENGTH, obs_module_text("Strength"), 0,
                                   100, 1);
   auto *summary = obs_properties_add_text(
@@ -265,8 +187,6 @@ obs_source_info makeInfo() {
   value.get_properties = properties;
   value.update = update;
   value.video_render = render;
-  value.filter_remove = removed;
-  value.filter_add = added;
   return value;
 }
 obs_source_info info = makeInfo();
