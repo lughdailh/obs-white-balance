@@ -95,10 +95,11 @@ void update(void *data, obs_data_t *settings) {
   if (!f || !settings)
     return;
 
-  f->red = obs_data_get_double(settings, RED);
-  f->green = obs_data_get_double(settings, GREEN);
-  f->blue = obs_data_get_double(settings, BLUE);
-  f->strength = obs_data_get_double(settings, STRENGTH) / 100.0;
+  f->red = static_cast<float>(obs_data_get_double(settings, RED));
+  f->green = static_cast<float>(obs_data_get_double(settings, GREEN));
+  f->blue = static_cast<float>(obs_data_get_double(settings, BLUE));
+  f->strength =
+      static_cast<float>(obs_data_get_double(settings, STRENGTH) / 100.0);
   f->summary = obs_data_get_string(settings, SUMMARY);
 }
 void defaults(obs_data_t *s) {
