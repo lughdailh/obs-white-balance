@@ -1,5 +1,9 @@
 .deps/
 build/
+build_macos/
+build_x64/
+.ccache/
+release/
 dist/
 .DS_Store
 ai-context.md

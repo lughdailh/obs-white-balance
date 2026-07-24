@@ -1,7 +1,7 @@
 #import <AppKit/AppKit.h>
 
-#include <obs.h>
 #include <obs-module.h>
+#include <obs.h>
 
 #include <cstdio>
 
@@ -52,8 +52,8 @@ int main(int argc, char **argv) {
       return 6;
     }
 
-    obs_source_t *filter =
-        obs_source_create_private("white_balance_filter", "smoke-test", nullptr);
+    obs_source_t *filter = obs_source_create_private("white_balance_filter",
+                                                     "smoke-test", nullptr);
     if (!filter) {
       std::fprintf(stderr, "white_balance_filter creation failed\n");
       obs_shutdown();

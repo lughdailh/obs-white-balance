@@ -1,0 +1,82 @@
+name: Build
+
+on:
+  push:
+    branches: [main, "agent/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS universal
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        uses: ./.github/actions/build-plugin
+        with:
+          target: macos-universal
+          config: Release
+      - name: Test calibration
+        run: |
+          cmake --build build_macos --config Release --target calibration-math-tests
+          ctest --test-dir build_macos -C Release --output-on-failure -R calibration-math
+      - name: Package
+        uses: ./.github/actions/package-plugin
+        with:
+          target: macos-universal
+          config: Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obs-white-balance-0.2.0-macos-universal
+          path: release/obs-white-balance-0.2.0-macos-universal.tar.xz
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        uses: ./.github/actions/build-plugin
+        with:
+          target: x64
+          config: Release
+      - name: Test calibration
+        run: |
+          cmake --build build_x64 --config Release --target calibration-math-tests
+          ctest --test-dir build_x64 -C Release --output-on-failure -R calibration-math
+      - name: Package
+        uses: ./.github/actions/package-plugin
+        with:
+          target: x64
+          config: Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obs-white-balance-0.2.0-windows-x64
+          path: release/obs-white-balance-0.2.0-windows-x64.zip
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        run: sha256sum artifacts/* > artifacts/SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*

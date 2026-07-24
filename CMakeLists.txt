@@ -1,69 +1,82 @@
-cmake_minimum_required(VERSION 3.24)
-project(obs-white-balance VERSION 0.1.3 LANGUAGES C CXX OBJCXX)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(OBS_APP "/Applications/OBS.app" CACHE PATH "Path to OBS.app")
-set(OBS_SOURCE_DIR "" CACHE PATH "Path to matching OBS Studio source")
-if(NOT APPLE)
-  message(FATAL_ERROR "Version 0.1 supports macOS only")
-endif()
-if(NOT EXISTS "${OBS_SOURCE_DIR}/libobs/obs-module.h")
-  message(FATAL_ERROR "Run scripts/fetch-obs-source.sh and set OBS_SOURCE_DIR")
-endif()
-if(NOT EXISTS "${OBS_APP}/Contents/Frameworks/libobs.framework/libobs")
-  message(FATAL_ERROR "libobs.framework not found in ${OBS_APP}")
+cmake_minimum_required(VERSION 3.28...3.30)
+
+include(cmake/common/bootstrap.cmake NO_POLICY_SCOPE)
+project(${_name} VERSION ${_version})
+
+include(compilerconfig)
+include(defaults)
+include(helpers)
+
+add_library(${CMAKE_PROJECT_NAME} MODULE)
+add_library(OBS::${CMAKE_PROJECT_NAME} ALIAS ${CMAKE_PROJECT_NAME})
+
+find_package(libobs REQUIRED)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
+target_compile_features(${CMAKE_PROJECT_NAME} PRIVATE cxx_std_17)
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE src)
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE src/calibration-math.cpp src/calibration-math.hpp
+          src/platform-eyedropper.hpp src/white-balance-filter.cpp
+)
+
+if(OS_MACOS)
+  enable_language(OBJCXX)
+  find_library(APPKIT AppKit REQUIRED)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/platform-eyedropper-macos.mm)
+  target_compile_options(
+    ${CMAKE_PROJECT_NAME} PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>"
+  )
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE "${APPKIT}")
+elseif(OS_WINDOWS)
+  target_sources(
+    ${CMAKE_PROJECT_NAME} PRIVATE src/platform-eyedropper-windows.cpp
+  )
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE user32 gdi32)
+else()
+  message(FATAL_ERROR "White Balance currently supports macOS and Windows")
 endif()
 
-add_library(obs-white-balance MODULE src/calibration-math.cpp
-            src/white-balance-filter.mm)
-target_include_directories(obs-white-balance PRIVATE src)
-target_include_directories(obs-white-balance SYSTEM PRIVATE
-                           "${OBS_SOURCE_DIR}/libobs")
-target_compile_options(obs-white-balance PRIVATE -Wall -Wextra -Wpedantic
-                       "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
-find_library(APPKIT AppKit REQUIRED)
-target_link_libraries(obs-white-balance PRIVATE
-                      "${OBS_APP}/Contents/Frameworks/libobs.framework/libobs"
-                      "${APPKIT}")
-set_target_properties(obs-white-balance PROPERTIES PREFIX "" SUFFIX ".so"
-  BUILD_RPATH "${OBS_APP}/Contents/Frameworks")
+set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 include(CTest)
 if(BUILD_TESTING)
-  add_executable(calibration-math-tests tests/calibration-math.test.cpp
-                 src/calibration-math.cpp)
+  add_executable(
+    calibration-math-tests tests/calibration-math.test.cpp
+                           src/calibration-math.cpp
+  )
+  target_compile_features(calibration-math-tests PRIVATE cxx_std_17)
   target_include_directories(calibration-math-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(calibration-math-tests PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(calibration-math-tests PRIVATE -UNDEBUG)
+  endif()
   add_test(NAME calibration-math-tests COMMAND calibration-math-tests)
 
-  add_executable(plugin-smoke tests/plugin-smoke.mm)
-  target_include_directories(plugin-smoke SYSTEM PRIVATE
-                             "${OBS_SOURCE_DIR}/libobs")
-  target_compile_options(plugin-smoke PRIVATE -fobjc-arc)
-  target_link_libraries(plugin-smoke PRIVATE
-                        "${OBS_APP}/Contents/Frameworks/libobs.framework/libobs"
-                        "${APPKIT}")
-  set_target_properties(plugin-smoke PROPERTIES
-                        BUILD_RPATH "${OBS_APP}/Contents/Frameworks")
-  add_dependencies(plugin-smoke obs-white-balance)
-  add_test(
-    NAME plugin-smoke
-    COMMAND plugin-smoke
-            "${OBS_APP}/Contents/Frameworks/libobs-opengl.dylib"
-            "$<TARGET_FILE:obs-white-balance>"
-            "${CMAKE_CURRENT_SOURCE_DIR}/data")
+  if(OS_MACOS AND EXISTS "/Applications/OBS.app/Contents/Frameworks/libobs.framework/libobs")
+    add_executable(plugin-smoke tests/plugin-smoke.mm)
+    target_compile_options(plugin-smoke PRIVATE -fobjc-arc -UNDEBUG)
+    target_link_libraries(plugin-smoke PRIVATE OBS::libobs "${APPKIT}")
+    set_target_properties(
+      plugin-smoke
+      PROPERTIES
+        BUILD_RPATH
+        "${CMAKE_CURRENT_SOURCE_DIR}/.deps/Frameworks;/Applications/OBS.app/Contents/Frameworks"
+    )
+    add_dependencies(plugin-smoke ${CMAKE_PROJECT_NAME})
+    add_test(
+      NAME plugin-smoke
+      COMMAND
+        plugin-smoke
+        "/Applications/OBS.app/Contents/Frameworks/libobs-opengl.dylib"
+        "$<TARGET_FILE:${CMAKE_PROJECT_NAME}>" "${CMAKE_CURRENT_SOURCE_DIR}/data"
+    )
+    set_tests_properties(
+      plugin-smoke
+      PROPERTIES
+        ENVIRONMENT
+        "DYLD_FRAMEWORK_PATH=${CMAKE_CURRENT_SOURCE_DIR}/.deps/Frameworks:/Applications/OBS.app/Contents/Frameworks;DYLD_LIBRARY_PATH=${CMAKE_CURRENT_SOURCE_DIR}/.deps/obs-deps-2025-07-11-universal/lib"
+    )
+  endif()
 endif()
-
-set(BUNDLE "${CMAKE_BINARY_DIR}/obs-white-balance.plugin")
-add_custom_command(TARGET obs-white-balance POST_BUILD
-  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${BUNDLE}"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "${BUNDLE}/Contents/MacOS"
-          "${BUNDLE}/Contents/Resources/locale"
-  COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:obs-white-balance>"
-          "${BUNDLE}/Contents/MacOS/obs-white-balance"
-  COMMAND "${CMAKE_COMMAND}" -E copy packaging/macos/Info.plist
-          "${BUNDLE}/Contents/Info.plist"
-  COMMAND "${CMAKE_COMMAND}" -E copy data/white-balance.effect
-          "${BUNDLE}/Contents/Resources/white-balance.effect"
-  COMMAND "${CMAKE_COMMAND}" -E copy data/locale/en-US.ini data/locale/ca-ES.ini
-          "${BUNDLE}/Contents/Resources/locale"
-  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
