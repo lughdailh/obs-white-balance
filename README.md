@@ -45,7 +45,7 @@ completa, el calibratge simultani de càmeres i Windows queden per a versions
 posteriors.
 
 També es genera/distribueix el paquet Apple Silicon
-`dist/obs-white-balance-0.1.2-macos-arm64.zip`. El paquet d'aquesta versió té
+`dist/obs-white-balance-0.1.3-macos-arm64.zip`. El paquet d'aquesta versió té
 signatura ad hoc per a proves locals, però no una signatura Developer ID ni
 notarització d'Apple.
 

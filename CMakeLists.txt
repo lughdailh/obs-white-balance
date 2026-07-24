@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(obs-white-balance VERSION 0.1.2 LANGUAGES C CXX OBJCXX)
+project(obs-white-balance VERSION 0.1.3 LANGUAGES C CXX OBJCXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(OBS_APP "/Applications/OBS.app" CACHE PATH "Path to OBS.app")
