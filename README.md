@@ -1,9 +1,8 @@
 # OBS White Balance
 
-Filtre de vídeo per a macOS amb el comptagotes natiu del sistema. Permet clicar
-una referència blanca o gris neutra directament sobre el preview viu d'OBS i
-desa una correcció RGB fixa. No revisa la imatge ni modifica el calibratge
-contínuament.
+Filtre de vídeo per a macOS i Windows. Permet clicar una referència blanca o
+gris neutra directament sobre el preview viu d'OBS i desa una correcció RGB
+fixa. No revisa la imatge ni modifica el calibratge contínuament.
 
 ## Ús
 
@@ -11,8 +10,8 @@ contínuament.
 2. Posa una carta blanca o gris neutra sota la il·luminació real.
 3. Afegeix **White Balance** als filtres d'efecte de la càmera.
 4. Prem **Tria un color neutre…**.
-5. Amb el comptagotes de macOS, clica una zona uniforme de la carta directament
-   sobre el preview viu d'OBS.
+5. Amb el comptagotes, clica una zona uniforme de la carta directament sobre el
+   preview viu d'OBS. A Windows pots cancel·lar-lo amb `Esc`.
 6. Retira la carta i grava. El calibratge queda fix i desat amb l'escena.
 
 Per ometre la correcció s'utilitza el botó de l'ull que OBS ja ofereix a tots
@@ -20,34 +19,37 @@ els filtres.
 
 ## Compilació
 
-Requereix macOS, Xcode, CMake, Git i OBS Studio. La primera versió apunta a OBS
-30.2.3 en Apple Silicon:
+La versió 0.2.0 es compila contra OBS Studio 31.1.1 amb la infraestructura de
+compilació oficial del seu template de plugins.
+
+macOS (binari universal Intel i Apple Silicon):
 
 ```sh
-chmod +x scripts/fetch-obs-source.sh
-./scripts/fetch-obs-source.sh 30.2.3
-cmake -S . -B build -DOBS_SOURCE_DIR="$PWD/.deps/obs-studio"
-cmake --build build
-ctest --test-dir build --output-on-failure
+.github/scripts/build-macos --config Release
+.github/scripts/package-macos --config Release
 ```
 
-El resultat és `build/obs-white-balance.plugin`. Amb OBS tancat:
+Windows x64, des de PowerShell:
+
+```powershell
+.\.github\scripts\Build-Windows.ps1 -Target x64 -Configuration Release
+.\.github\scripts\Package-Windows.ps1 -Target x64 -Configuration Release
+```
+
+Per executar només les proves després de compilar:
 
 ```sh
-mkdir -p "$HOME/Library/Application Support/obs-studio/plugins"
-cp -R build/obs-white-balance.plugin \
-  "$HOME/Library/Application Support/obs-studio/plugins/"
+ctest --test-dir build_macos -C Release --output-on-failure
 ```
 
-La versió 0.1 funciona sobre qualsevol font visible al preview, fa calibratge
-d'un sol punt i no està signada ni notaritzada. La detecció d'una carta de colors
-completa, el calibratge simultani de càmeres i Windows queden per a versions
-posteriors.
+GitHub Actions genera automàticament:
 
-També es genera/distribueix el paquet Apple Silicon
-`dist/obs-white-balance-0.1.2-macos-arm64.zip`. El paquet d'aquesta versió té
-signatura ad hoc per a proves locals, però no una signatura Developer ID ni
-notarització d'Apple.
+- `obs-white-balance-0.2.0-macos-universal.tar.xz`
+- `obs-white-balance-0.2.0-windows-x64.zip`
+
+Els paquets públics no estan signats ni notaritzats. El filtre fa calibratge
+d'un sol punt; la detecció automàtica d'una carta de colors completa queda fora
+de la versió 0.2.0.
 
 La versió compilada també es pot descarregar des de les
 [releases de GitHub](https://github.com/lughdailh/obs-white-balance/releases).

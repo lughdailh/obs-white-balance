@@ -6,8 +6,8 @@
 
 static bool near(double a, double b) { return std::abs(a - b) < 0.01; }
 int main() {
-  auto direct =
-      white_balance::calibrateRgb({100.0 / 255.0, 150.0 / 255.0, 200.0 / 255.0});
+  auto direct = white_balance::calibrateRgb(
+      {100.0 / 255.0, 150.0 / 255.0, 200.0 / 255.0});
   assert(direct.gains.red > direct.gains.green);
   assert(direct.gains.green > direct.gains.blue);
   assert(near(direct.sample.red * direct.gains.red,
@@ -18,8 +18,8 @@ int main() {
     neutral[i] = neutral[i + 1] = neutral[i + 2] = 128;
     neutral[i + 3] = 255;
   }
-  auto result = white_balance::calibrateBgraRegion(neutral.data(), 4, 4, 16,
-                                                    0.5, 0.5, 2);
+  auto result =
+      white_balance::calibrateBgraRegion(neutral.data(), 4, 4, 16, 0.5, 0.5, 2);
   assert(near(result.gains.red, 1));
   assert(near(result.gains.green, 1));
   assert(near(result.gains.blue, 1));

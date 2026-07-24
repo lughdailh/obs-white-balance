@@ -62,4 +62,4 @@ std::string formatCalibration(const Calibration &c) {
       << ", " << c.gains.green << ", " << c.gains.blue;
   return out.str();
 }
-}  // namespace white_balance
+} // namespace white_balance

@@ -1,6 +1,8 @@
-#import <AppKit/AppKit.h>
-#include <obs-module.h>
 #include "calibration-math.hpp"
+#include "platform-eyedropper.hpp"
+#include <iomanip>
+#include <obs-module.h>
+#include <sstream>
 #include <string>
 
 OBS_DECLARE_MODULE()
@@ -23,57 +25,67 @@ struct Filter {
   gs_eparam_t *greenParam = nullptr;
   gs_eparam_t *blueParam = nullptr;
   float red = 1, green = 1, blue = 1, strength = 1;
+  std::string summary;
 };
 
-void alert(NSString *message) {
-  NSAlert *box = [[NSAlert alloc] init];
-  box.messageText = @"White Balance";
-  box.informativeText = message;
-  [box runModal];
+struct CalibrationRequest {
+  obs_source_t *source = nullptr;
+  bool wasEnabled = false;
+};
+
+void applySample(void *context, const white_balance::SampledColor &sample) {
+  auto *request = static_cast<CalibrationRequest *>(context);
+  obs_source_t *source = request->source;
+  obs_source_set_enabled(source, request->wasEnabled);
+  if (sample.selected) {
+    const auto result =
+        white_balance::calibrateRgb({sample.red, sample.green, sample.blue});
+    blog(LOG_INFO,
+         "[White Balance] Selected RGB %.4f, %.4f, %.4f; gains %.4f, "
+         "%.4f, %.4f",
+         sample.red, sample.green, sample.blue, result.gains.red,
+         result.gains.green, result.gains.blue);
+    obs_data_t *settings = obs_source_get_settings(source);
+    obs_data_set_double(settings, RED, result.gains.red);
+    obs_data_set_double(settings, GREEN, result.gains.green);
+    obs_data_set_double(settings, BLUE, result.gains.blue);
+    auto summary = white_balance::formatCalibration(result);
+    obs_data_set_string(settings, SUMMARY, summary.c_str());
+    obs_source_update(source, settings);
+    obs_data_release(settings);
+    obs_source_update_properties(source);
+    if (result.tooDark)
+      white_balance::showAlert(
+          "Calibration applied, but the sample is dark. Use a better-lit "
+          "neutral card for more reliable results.");
+    else if (result.nearClipping)
+      white_balance::showAlert(
+          "Calibration applied, but the sample is nearly clipped. Reduce "
+          "exposure and recalibrate.");
+  } else {
+    blog(LOG_INFO, "[White Balance] Eyedropper cancelled");
+  }
+  obs_source_release(source);
+  delete request;
 }
 
 bool calibrate(obs_properties_t *, obs_property_t *, void *data) {
   auto *filter = static_cast<Filter *>(data);
   if (!filter) {
-    alert(@"The White Balance filter could not be created.");
+    white_balance::showAlert("The White Balance filter could not be created.");
     return false;
   }
 
-  obs_source_t *source = obs_source_get_ref(filter->source);
-  const bool wasEnabled = obs_source_enabled(source);
-  obs_source_set_enabled(source, false);
-  NSColorSampler *sampler = [[NSColorSampler alloc] init];
-  [sampler showSamplerWithSelectionHandler:^(NSColor *selectedColor) {
-    (void)sampler;
-    obs_source_set_enabled(source, wasEnabled);
-    if (selectedColor) {
-      NSColor *srgb =
-          [selectedColor colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
-      CGFloat red = 0;
-      CGFloat green = 0;
-      CGFloat blue = 0;
-      CGFloat alpha = 0;
-      [srgb getRed:&red green:&green blue:&blue alpha:&alpha];
-      const auto result = white_balance::calibrateRgb(
-          {static_cast<double>(red), static_cast<double>(green),
-           static_cast<double>(blue)});
-      obs_data_t *settings = obs_source_get_settings(source);
-      obs_data_set_double(settings, RED, result.gains.red);
-      obs_data_set_double(settings, GREEN, result.gains.green);
-      obs_data_set_double(settings, BLUE, result.gains.blue);
-      auto summary = white_balance::formatCalibration(result);
-      obs_data_set_string(settings, SUMMARY, summary.c_str());
-      obs_source_update(source, settings);
-      obs_data_release(settings);
-      if (result.tooDark)
-        alert(@"Calibration applied, but the sample is dark. Use a better-lit "
-              "neutral card for more reliable results.");
-      else if (result.nearClipping)
-        alert(@"Calibration applied, but the sample is nearly clipped. Reduce "
-              "exposure and recalibrate.");
-    }
-    obs_source_release(source);
-  }];
+  auto *request = new CalibrationRequest{obs_source_get_ref(filter->source),
+                                         obs_source_enabled(filter->source)};
+  obs_source_set_enabled(request->source, false);
+  blog(LOG_INFO, "[White Balance] Eyedropper opened");
+  if (!white_balance::showEyedropper(request, applySample)) {
+    obs_source_set_enabled(request->source, request->wasEnabled);
+    obs_source_release(request->source);
+    delete request;
+    white_balance::showAlert("An eyedropper is already active.");
+  }
   return false;
 }
 
@@ -83,17 +95,19 @@ void update(void *data, obs_data_t *settings) {
   if (!f || !settings)
     return;
 
-  f->red = obs_data_get_double(settings, RED);
-  f->green = obs_data_get_double(settings, GREEN);
-  f->blue = obs_data_get_double(settings, BLUE);
-  f->strength = obs_data_get_double(settings, STRENGTH) / 100.0;
+  f->red = static_cast<float>(obs_data_get_double(settings, RED));
+  f->green = static_cast<float>(obs_data_get_double(settings, GREEN));
+  f->blue = static_cast<float>(obs_data_get_double(settings, BLUE));
+  f->strength =
+      static_cast<float>(obs_data_get_double(settings, STRENGTH) / 100.0);
+  f->summary = obs_data_get_string(settings, SUMMARY);
 }
 void defaults(obs_data_t *s) {
   obs_data_set_default_double(s, RED, 1);
   obs_data_set_default_double(s, GREEN, 1);
   obs_data_set_default_double(s, BLUE, 1);
   obs_data_set_default_double(s, STRENGTH, 100);
-  obs_data_set_default_string(s, SUMMARY, "Not calibrated");
+  obs_data_set_default_string(s, SUMMARY, obs_module_text("NotCalibrated"));
 }
 void *create(obs_data_t *settings, obs_source_t *source) {
   auto *f = new Filter;
@@ -157,21 +171,27 @@ void render(void *data, gs_effect_t *) {
   obs_source_process_filter_end(f->source, f->effect, 0, 0);
 }
 obs_properties_t *properties(void *data) {
+  auto *filter = static_cast<Filter *>(data);
   auto *p = obs_properties_create();
-  obs_properties_add_button2(p, "calibrate", obs_module_text("CaptureReference"),
-                             calibrate, data);
+  obs_properties_add_button2(
+      p, "calibrate", obs_module_text("CaptureReference"), calibrate, data);
   obs_properties_add_float_slider(p, STRENGTH, obs_module_text("Strength"), 0,
                                   100, 1);
-  auto *summary = obs_properties_add_text(
-      p, SUMMARY, obs_module_text("Calibration"), OBS_TEXT_DEFAULT);
-  obs_property_set_enabled(summary, false);
-  for (auto pair : {std::pair{RED, "RedGain"}, std::pair{GREEN, "GreenGain"},
-                    std::pair{BLUE, "BlueGain"}}) {
-    auto *gain = obs_properties_add_float(p, pair.first,
-                                          obs_module_text(pair.second), 0.25,
-                                          4.0, 0.001);
-    obs_property_set_enabled(gain, false);
-  }
+
+  std::ostringstream status;
+  status << obs_module_text("Calibration") << ": "
+         << (filter && !filter->summary.empty()
+                 ? filter->summary
+                 : obs_module_text("NotCalibrated"))
+         << "\n"
+         << obs_module_text("RedGain") << ": " << std::fixed
+         << std::setprecision(3) << (filter ? filter->red : 1.0F) << "\n"
+         << obs_module_text("GreenGain") << ": "
+         << (filter ? filter->green : 1.0F) << "\n"
+         << obs_module_text("BlueGain") << ": "
+         << (filter ? filter->blue : 1.0F);
+  obs_properties_add_text(p, "_calibration_info", status.str().c_str(),
+                          OBS_TEXT_INFO);
   return p;
 }
 
@@ -190,9 +210,11 @@ obs_source_info makeInfo() {
   return value;
 }
 obs_source_info info = makeInfo();
-}  // namespace
+} // namespace
 
 bool obs_module_load(void) {
   obs_register_source(&info);
   return true;
 }
+
+void obs_module_unload(void) { white_balance::shutdownEyedropper(); }

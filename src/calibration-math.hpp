@@ -21,4 +21,4 @@ Calibration calibrateBgraRegion(const std::uint8_t *pixels, std::size_t width,
                                 double normalizedX, double normalizedY,
                                 std::size_t radius);
 std::string formatCalibration(const Calibration &calibration);
-}  // namespace white_balance
+} // namespace white_balance
