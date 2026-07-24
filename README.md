@@ -19,7 +19,7 @@ els filtres.
 
 ## Compilació
 
-La versió 0.2.1 es compila contra OBS Studio 31.1.1 amb la infraestructura de
+La versió 0.2.2 es compila contra OBS Studio 31.1.1 amb la infraestructura de
 compilació oficial del seu template de plugins.
 
 macOS (binari universal Intel i Apple Silicon):
@@ -44,12 +44,12 @@ ctest --test-dir build_macos -C Release --output-on-failure
 
 GitHub Actions genera automàticament:
 
-- `obs-white-balance-0.2.1-macos-universal.tar.xz`
-- `obs-white-balance-0.2.1-windows-x64.zip`
+- `obs-white-balance-0.2.2-macos-universal.tar.xz`
+- `obs-white-balance-0.2.2-windows-x64.zip`
 
 Els paquets públics no estan signats ni notaritzats. El filtre fa calibratge
 d'un sol punt; la detecció automàtica d'una carta de colors completa queda fora
-de la versió 0.2.1.
+de la versió 0.2.2.
 
 La versió compilada també es pot descarregar des de les
 [releases de GitHub](https://github.com/lughdailh/obs-white-balance/releases).

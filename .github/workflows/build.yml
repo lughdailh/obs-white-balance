@@ -32,8 +32,8 @@ jobs:
           config: Release
       - uses: actions/upload-artifact@v4
         with:
-          name: obs-white-balance-0.2.1-macos-universal
-          path: release/obs-white-balance-0.2.1-macos-universal.tar.xz
+          name: obs-white-balance-0.2.2-macos-universal
+          path: release/obs-white-balance-0.2.2-macos-universal.tar.xz
 
   windows:
     name: Windows x64
@@ -59,8 +59,8 @@ jobs:
           config: Release
       - uses: actions/upload-artifact@v4
         with:
-          name: obs-white-balance-0.2.1-windows-x64
-          path: release/obs-white-balance-0.2.1-windows-x64.zip
+          name: obs-white-balance-0.2.2-windows-x64
+          path: release/obs-white-balance-0.2.2-windows-x64.zip
 
   release:
     name: Publish release

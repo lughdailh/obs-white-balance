@@ -37,6 +37,7 @@ void completeOnObsThread(void *data) {
   auto *completion = static_cast<Completion *>(data);
   completion->callback(completion->context, completion->color);
   delete completion;
+  sampling = false;
 }
 
 LRESULT CALLBACK pickerWindowProc(HWND window, UINT message, WPARAM wParam,
@@ -52,8 +53,24 @@ LRESULT CALLBACK pickerWindowProc(HWND window, UINT message, WPARAM wParam,
 
   switch (message) {
   case WM_SETCURSOR:
+  case WM_MOUSEMOVE:
     SetCursor(LoadCursorW(nullptr, IDC_CROSS));
     return TRUE;
+  case WM_PAINT: {
+    PAINTSTRUCT paint{};
+    HDC context = BeginPaint(window, &paint);
+    RECT bounds{};
+    GetClientRect(window, &bounds);
+    SetBkMode(context, TRANSPARENT);
+    SetTextColor(context, RGB(255, 255, 255));
+    HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    const auto previousFont = SelectObject(context, font);
+    DrawTextW(context, L"Click a white area  |  Esc to cancel", -1, &bounds,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(context, previousFont);
+    EndPaint(window, &paint);
+    return 0;
+  }
   case WM_LBUTTONDOWN:
     if (state) {
       state->point = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
@@ -87,6 +104,7 @@ bool registerPickerClass(HINSTANCE instance) {
   windowClass.lpfnWndProc = pickerWindowProc;
   windowClass.hInstance = instance;
   windowClass.hCursor = LoadCursorW(nullptr, IDC_CROSS);
+  windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
   windowClass.lpszClassName = pickerClassName;
   if (RegisterClassExW(&windowClass))
     return true;
@@ -127,13 +145,15 @@ void sampleNextClick(void *context, SampleCallback callback) {
         nullptr, nullptr, instance, &state);
     if (window) {
       pickerWindow = window;
-      SetLayeredWindowAttributes(window, 0, 1, LWA_ALPHA);
+      SetLayeredWindowAttributes(window, 0, 45, LWA_ALPHA);
       ShowWindow(window, SW_SHOW);
       SetWindowPos(window, HWND_TOPMOST, left, top, width, height,
                    SWP_SHOWWINDOW);
       SetForegroundWindow(window);
       SetFocus(window);
-      SetCapture(window);
+      SetCursor(LoadCursorW(nullptr, IDC_CROSS));
+      RedrawWindow(window, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 
       MSG message{};
       while (!stopping && GetMessageW(&message, nullptr, 0, 0) > 0) {
@@ -143,7 +163,6 @@ void sampleNextClick(void *context, SampleCallback callback) {
 
       if (IsWindow(window))
         DestroyWindow(window);
-      ReleaseCapture();
       if (state.selected) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         color = sampleScreenPixel(state.point);
@@ -153,9 +172,10 @@ void sampleNextClick(void *context, SampleCallback callback) {
 
   if (!stopping) {
     auto *completion = new Completion{context, callback, color};
-    obs_queue_task(OBS_TASK_UI, completeOnObsThread, completion, true);
+    obs_queue_task(OBS_TASK_UI, completeOnObsThread, completion, false);
+  } else {
+    sampling = false;
   }
-  sampling = false;
 }
 
 } // namespace
