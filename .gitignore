@@ -1,0 +1,7 @@
+.deps/
+build/
+dist/
+.DS_Store
+ai-context.md
+AGENTS.md
+.github/agents/
