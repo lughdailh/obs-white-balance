@@ -38,7 +38,7 @@
     },
     "name": "obs-white-balance",
     "displayName": "White Balance",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "author": "lughdailh",
     "website": "https://github.com/lughdailh/obs-white-balance",
     "email": ""
